@@ -222,21 +222,26 @@ export const assessMaterialAI = async (req, res, next) => {
       isHazardous
     );
 
+    let updateData = {
+      overrides: newOverrides,
+      isGated,
+      gatingReason,
+      recommendedPath,
+      aiSuggested: true
+    };
+
     if (!isGated) {
-      const decision = runDecisionEngine(material, aiResult.condition);
-      recommendedPath = decision.recommendedPath;
+      const decision = runDecisionEngine(material, aiResult.condition, aiResult.accessibility);
+      updateData.recommendedPath = decision.recommendedPath;
+      updateData.technicalFeasibility = { score: decision.scores.technical };
+      updateData.economicViability = { score: decision.scores.economic };
+      updateData.environmentalPerformance = { score: decision.scores.environmental };
     }
 
     // Save back to DB
     const updated = await prisma.material.update({
       where: { id },
-      data: {
-        overrides: newOverrides,
-        isGated,
-        gatingReason,
-        recommendedPath,
-        aiSuggested: true
-      },
+      data: updateData,
       include: { preset: true }
     });
 
@@ -322,27 +327,39 @@ export const evaluateMaterial = async (req, res, next) => {
     );
 
     let engineMessage = 'العنصر سليم ويمر لمحرك القرارات';
+    let decisionScores = null;
+
     if (!isGated) {
-      const decision = runDecisionEngine(material, normalizedCondition);
+      const decision = runDecisionEngine(material, normalizedCondition, normalizedAccessibility);
       recommendedPath = decision.recommendedPath;
       engineMessage = decision.reason;
+      decisionScores = decision.scores;
     }
 
     const currentOverrides = (typeof material.overrides === 'object' && material.overrides) ? material.overrides : {};
+    
+    let updateData = {
+      isGated,
+      gatingReason,
+      recommendedPath,
+      overrides: {
+        ...currentOverrides,
+        condition: normalizedCondition,
+        accessibility: normalizedAccessibility,
+        isHazardous: hazardous,
+        evaluatedManually: true
+      }
+    };
+
+    if (decisionScores) {
+      updateData.technicalFeasibility = { score: decisionScores.technical };
+      updateData.economicViability = { score: decisionScores.economic };
+      updateData.environmentalPerformance = { score: decisionScores.environmental };
+    }
+
     const updated = await prisma.material.update({
       where: { id },
-      data: {
-        isGated,
-        gatingReason,
-        recommendedPath,
-        overrides: {
-          ...currentOverrides,
-          condition: normalizedCondition,
-          accessibility: normalizedAccessibility,
-          isHazardous: hazardous,
-          evaluatedManually: true
-        }
-      },
+      data: updateData,
       include: { preset: true }
     });
 
