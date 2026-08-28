@@ -114,6 +114,65 @@
     }
   ],
   "paths": {
+    "/api/projects/{projectId}/materials/upload": {
+      "post": {
+        "summary": "Upload a BOQ Excel file",
+        "description": "Upload an Excel file to extract materials, match them with presets, and run the initial Gates Logic.",
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "The BOQ Excel file (.xlsx)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Materials processed and added successfully" }
+        }
+      }
+    },
+    "/api/projects/{projectId}/materials/{id}/assess": {
+      "post": {
+        "summary": "Assess material using AI",
+        "description": "Upload an image of the material to assess its condition and accessibility using Google Gemini Vision.",
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Image of the construction element"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "AI Assessment successful, material updated" }
+        }
+      }
+    },
     "/api/presets": {
       "get": {
         "summary": "Fetch all material presets",
