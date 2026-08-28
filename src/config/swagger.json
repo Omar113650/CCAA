@@ -173,6 +173,130 @@
         }
       }
     },
+    "/api/projects/{projectId}/materials/{id}/evaluate": {
+      "post": {
+        "summary": "تقييم عنصر يدوياً وتطبيق بوابات القرار (Gates Engine)",
+        "description": "يستقبل إجابات المستخدم عن حالة العنصر وإمكانية الوصول وهل يحتوي على مواد خطرة، ثم يطبق بوابات القرار الثلاث ويرجع القرار الفوري.\n\n**Smart Normalization:** الـ Backend يفهم أي قيمة عربية أو إنجليزية:\n- condition: 'جيدة' / 'good' / 'متوسطة' / 'fair' / 'سيئة' / 'bad' / 'تالف' / 'damaged'\n- accessibility: 'سهلة' / 'easy' / 'متوسطة' / 'fair' / 'صعبة' / 'hard' / 'inaccessible'\n- isHazardous: true / false / 'نعم' / 'لا' / 'yes' / 'no' / 1 / 0",
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["condition", "accessibility"],
+                "properties": {
+                  "condition": {
+                    "type": "string",
+                    "description": "حالة العنصر - يقبل أي قيمة عربية أو إنجليزية",
+                    "example": "سيئة"
+                  },
+                  "accessibility": {
+                    "type": "string",
+                    "description": "إمكانية الوصول - يقبل أي قيمة عربية أو إنجليزية",
+                    "example": "صعبة"
+                  },
+                  "isHazardous": {
+                    "description": "هل يحتوي على مواد خطرة؟ يقبل: true/false, 'نعم'/'لا', 'yes'/'no', 1/0",
+                    "example": "نعم"
+                  }
+                }
+              },
+              "examples": {
+                "scenario_hazardous": {
+                  "summary": "عنصر يحتوي على مواد خطرة",
+                  "value": { "condition": "جيدة", "accessibility": "سهلة", "isHazardous": "نعم" }
+                },
+                "scenario_damaged": {
+                  "summary": "عنصر تالف",
+                  "value": { "condition": "سيئة", "accessibility": "سهلة", "isHazardous": "لا" }
+                },
+                "scenario_inaccessible": {
+                  "summary": "عنصر يتعذر الوصول إليه",
+                  "value": { "condition": "جيدة", "accessibility": "صعبة", "isHazardous": "لا" }
+                },
+                "scenario_passes": {
+                  "summary": "عنصر سليم - يمر لمحرك القرارات",
+                  "value": { "condition": "جيدة", "accessibility": "سهلة", "isHazardous": "لا" }
+                },
+                "scenario_english": {
+                  "summary": "إرسال بالإنجليزية",
+                  "value": { "condition": "damaged", "accessibility": "easy", "isHazardous": false }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "تم التقييم بنجاح وإرجاع القرار",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "gated_hazardous": {
+                    "summary": "عنصر خطر - تخلص آمن",
+                    "value": {
+                      "success": true,
+                      "message": "تم تقييم العنصر بنجاح",
+                      "data": {
+                        "decision": {
+                          "condition": "جيدة",
+                          "accessibility": "سهل",
+                          "isHazardous": true,
+                          "isGated": true,
+                          "gatingReason": "Hazardous material detected",
+                          "recommendedPath": "safe_disposal",
+                          "message": "تم توجيه العنصر: Hazardous material detected"
+                        }
+                      }
+                    }
+                  },
+                  "gated_damaged": {
+                    "summary": "عنصر تالف - إعادة تدوير",
+                    "value": {
+                      "success": true,
+                      "message": "تم تقييم العنصر بنجاح",
+                      "data": {
+                        "decision": {
+                          "condition": "تالفة",
+                          "accessibility": "سهل",
+                          "isHazardous": false,
+                          "isGated": true,
+                          "gatingReason": "Damaged condition",
+                          "recommendedPath": "recycling",
+                          "message": "تم توجيه العنصر: Damaged condition"
+                        }
+                      }
+                    }
+                  },
+                  "passes_to_engine": {
+                    "summary": "عنصر سليم - يكمل لمحرك القرارات",
+                    "value": {
+                      "success": true,
+                      "message": "تم تقييم العنصر بنجاح",
+                      "data": {
+                        "decision": {
+                          "condition": "جيدة",
+                          "accessibility": "سهل",
+                          "isHazardous": false,
+                          "isGated": false,
+                          "gatingReason": null,
+                          "recommendedPath": "pending_decision_engine",
+                          "message": "العنصر سليم ويمر لمحرك القرارات"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/presets": {
       "get": {
         "summary": "Fetch all material presets",

@@ -240,3 +240,115 @@ export const assessMaterialAI = async (req, res, next) => {
     next(err);
   }
 };
+
+/**
+ * POST /api/projects/:projectId/materials/:id/evaluate
+ * Receive condition + accessibility + isHazardous from frontend (manual/JSON body)
+ * Applies Gates Logic and returns the decision.
+ * 
+ * Accepts BOTH frontend terms and backend terms:
+ *   condition:     جيدة | متوسطة | سيئة (frontend) / تالفة (backend)
+ *   accessibility: سهلة | متوسطة | صعبة (frontend) / يتعذر (backend)
+ *   isHazardous:   true | false | "نعم" | "لا"
+ */
+export const evaluateMaterial = async (req, res, next) => {
+  try {
+    const { projectId, id } = req.params;
+
+    const owned = await verifyProjectOwnership(res, projectId, req.user.id);
+    if (!owned) return;
+
+    const material = await prisma.material.findFirst({
+      where: { id, projectId },
+      include: { preset: true }
+    });
+    if (!material) return sendNotFound(res, 'Material not found');
+
+    let { condition, accessibility, isHazardous } = req.body;
+
+    // ===================================================
+    // SMART NORMALIZATION
+    // Frontend can send any value it wants (Arabic or English).
+    // We map it intelligently to the internal gate values.
+    // ===================================================
+
+    // Normalize CONDITION → internal: 'جيدة' | 'متوسطة' | 'تالفة'
+    const normalizeCondition = (val) => {
+      if (!val) return 'متوسطة'; // default
+      const v = String(val).toLowerCase().trim();
+      if (v.includes('تالف') || v.includes('سيئ') || v.includes('poor') || v.includes('bad') || v.includes('damaged') || v.includes('broken')) return 'تالفة';
+      if (v.includes('جيد') || v.includes('good') || v.includes('excellent') || v.includes('new') || v.includes('ممتاز')) return 'جيدة';
+      return 'متوسطة'; // fair/متوسط → falls to decision engine
+    };
+
+    // Normalize ACCESSIBILITY → internal: 'سهل' | 'متوسط' | 'يتعذر'
+    const normalizeAccessibility = (val) => {
+      if (!val) return 'متوسط'; // default
+      const v = String(val).toLowerCase().trim();
+      if (v.includes('صعب') || v.includes('يتعذر') || v.includes('hard') || v.includes('difficult') || v.includes('inaccessible') || v.includes('impossible')) return 'يتعذر';
+      if (v.includes('سهل') || v.includes('easy') || v.includes('simple') || v.includes('accessible')) return 'سهل';
+      return 'متوسط';
+    };
+
+    // Normalize HAZARDOUS → boolean
+    const normalizeHazardous = (val) => {
+      if (val === true || val === 'نعم' || val === 'yes' || val === 'true' || val === 1 || val === '1') return true;
+      if (val === false || val === 'لا' || val === 'no' || val === 'false' || val === 0 || val === '0') return false;
+      // Fallback: check from preset DB
+      const currentOv = (typeof material.overrides === 'object' && material.overrides) ? material.overrides : {};
+      if (currentOv.isHazardous === true) return true;
+      if (material.preset?.defaultValues) {
+        const dv = material.preset.defaultValues;
+        if (dv['مواد خطرة'] === 'نعم' || dv['Hazardous'] === 'Yes') return true;
+      }
+      return false;
+    };
+
+    const normalizedCondition = normalizeCondition(condition);
+    const normalizedAccessibility = normalizeAccessibility(accessibility);
+    const hazardous = normalizeHazardous(isHazardous);
+
+    // Apply Gates Engine
+    const { isGated, gatingReason, recommendedPath } = applyGates(
+      material.preset,
+      normalizedCondition,
+      normalizedAccessibility,
+      hazardous
+    );
+
+    const currentOverrides = (typeof material.overrides === 'object' && material.overrides) ? material.overrides : {};
+    const updated = await prisma.material.update({
+      where: { id },
+      data: {
+        isGated,
+        gatingReason,
+        recommendedPath,
+        overrides: {
+          ...currentOverrides,
+          condition: normalizedCondition,
+          accessibility: normalizedAccessibility,
+          isHazardous: hazardous,
+          evaluatedManually: true
+        }
+      },
+      include: { preset: true }
+    });
+
+    return sendSuccess(res, {
+      material: updated,
+      decision: {
+        condition: normalizedCondition,
+        accessibility: normalizedAccessibility,
+        isHazardous: hazardous,
+        isGated,
+        gatingReason,
+        recommendedPath: recommendedPath ?? 'pending_decision_engine',
+        message: isGated
+          ? `تم توجيه العنصر: ${gatingReason}`
+          : 'العنصر سليم ويمر لمحرك القرارات'
+      }
+    }, 'تم تقييم العنصر بنجاح');
+  } catch (err) {
+    next(err);
+  }
+};

@@ -9,7 +9,8 @@ import {
   updateMaterial,
   deleteMaterial,
   uploadBOQ,
-  assessMaterialAI
+  assessMaterialAI,
+  evaluateMaterial
 } from './materials.controller.js';
 
 // Setup basic memory upload for images
@@ -24,6 +25,7 @@ router.get('/', listMaterials);
 router.post('/', createMaterial);
 router.post('/upload', uploadBOQMiddleware, uploadBOQ);
 router.post('/:id/assess', uploadImage, assessMaterialAI);
+router.post('/:id/evaluate', evaluateMaterial);
 router.get('/:id', getMaterial);
 router.patch('/:id', updateMaterial);
 router.delete('/:id', deleteMaterial);
