@@ -181,7 +181,7 @@ export const uploadBOQ = async (req, res, next) => {
  * Assess material condition and accessibility via AI (Image)
  */
 import { assessElementImage } from '../../utils/ai.js';
-import { applyGates } from './materials.services.js';
+import { applyGates, runDecisionEngine } from './materials.services.js';
 
 export const assessMaterialAI = async (req, res, next) => {
   try {
@@ -215,12 +215,17 @@ export const assessMaterialAI = async (req, res, next) => {
     };
 
     // Re-evaluate Gates with new AI data
-    const { isGated, gatingReason, recommendedPath } = applyGates(
+    let { isGated, gatingReason, recommendedPath } = applyGates(
       material.preset,
       aiResult.condition,
       aiResult.accessibility,
       isHazardous
     );
+
+    if (!isGated) {
+      const decision = runDecisionEngine(material, aiResult.condition);
+      recommendedPath = decision.recommendedPath;
+    }
 
     // Save back to DB
     const updated = await prisma.material.update({
@@ -309,12 +314,19 @@ export const evaluateMaterial = async (req, res, next) => {
     const hazardous = normalizeHazardous(isHazardous);
 
     // Apply Gates Engine
-    const { isGated, gatingReason, recommendedPath } = applyGates(
+    let { isGated, gatingReason, recommendedPath } = applyGates(
       material.preset,
       normalizedCondition,
       normalizedAccessibility,
       hazardous
     );
+
+    let engineMessage = 'العنصر سليم ويمر لمحرك القرارات';
+    if (!isGated) {
+      const decision = runDecisionEngine(material, normalizedCondition);
+      recommendedPath = decision.recommendedPath;
+      engineMessage = decision.reason;
+    }
 
     const currentOverrides = (typeof material.overrides === 'object' && material.overrides) ? material.overrides : {};
     const updated = await prisma.material.update({
@@ -342,10 +354,10 @@ export const evaluateMaterial = async (req, res, next) => {
         isHazardous: hazardous,
         isGated,
         gatingReason,
-        recommendedPath: recommendedPath ?? 'pending_decision_engine',
+        recommendedPath: recommendedPath,
         message: isGated
           ? `تم توجيه العنصر: ${gatingReason}`
-          : 'العنصر سليم ويمر لمحرك القرارات'
+          : `تم تشغيل محرك القرارات: ${engineMessage}`
       }
     }, 'تم تقييم العنصر بنجاح');
   } catch (err) {

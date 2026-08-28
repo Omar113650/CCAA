@@ -22,7 +22,7 @@ export function applyGates(element, condition, accessibility, isHazardous) {
   else if (accessibility === 'يتعذر') {
     isGated = true;
     gatingReason = 'Inaccessible without hazardous materials';
-    recommendedPath = 'separation_after_demolition'; // Note: Not in schema Enum, fallback to recycling or custom
+    recommendedPath = 'recycling'; // Adjusted to enum
   } 
   // Gate 3: Damaged
   else if (condition === 'تالفة') {
@@ -31,12 +31,39 @@ export function applyGates(element, condition, accessibility, isHazardous) {
     recommendedPath = 'recycling';
   }
 
-  // Map 'separation_after_demolition' to recycling if it doesn't match enum
-  if (recommendedPath === 'separation_after_demolition') {
-     recommendedPath = 'recycling'; // Adjusting to the closest existing Enum in schema for now
+  return { isGated, gatingReason, recommendedPath };
+}
+
+/**
+ * The Decision Engine
+ * Determines final path (direct_reuse, refurbishment, recycling) for non-gated materials
+ */
+export function runDecisionEngine(element, condition) {
+  const category = element?.category || 'غير محدد';
+  
+  // Example predefined category types based on usual construction elements
+  const recyclableOnly = ['خرسانة', 'طوب', 'حديد تسليح', 'حصى', 'رمل', 'زجاج مكسور', 'أسمنت'];
+  const highlyReusable = ['أبواب', 'نوافذ', 'إضاءة', 'صحي', 'أثاث', 'ديكور', 'تكييف', 'أجهزة'];
+
+  const isRecyclable = recyclableOnly.some(c => category.includes(c));
+  const isReusable = highlyReusable.some(c => category.includes(c));
+
+  let recommendedPath = 'recycling';
+
+  if (isRecyclable) {
+    recommendedPath = 'recycling';
+  } else if (isReusable) {
+    if (condition === 'جيدة') recommendedPath = 'direct_reuse';
+    else if (condition === 'متوسطة') recommendedPath = 'refurbishment';
+    else recommendedPath = 'recycling';
+  } else {
+    // Default fallback based on condition
+    if (condition === 'جيدة') recommendedPath = 'direct_reuse';
+    else if (condition === 'متوسطة') recommendedPath = 'refurbishment';
+    else recommendedPath = 'recycling';
   }
 
-  return { isGated, gatingReason, recommendedPath };
+  return { recommendedPath, reason: `Decision Engine: Condition is ${condition}, Category is ${category}` };
 }
 
 /**
@@ -93,12 +120,17 @@ export const processBOQUpload = async (fileBuffer, projectId) => {
     const initialCondition = 'جيدة'; // 'جيدة' / 'متوسطة' / 'تالفة'
     const initialAccessibility = 'سهل'; // 'سهل' / 'متوسط' / 'يتعذر'
 
-    const { isGated, gatingReason, recommendedPath } = applyGates(
+    let { isGated, gatingReason, recommendedPath } = applyGates(
       bestMatch, 
       initialCondition, 
       initialAccessibility, 
       isHazardous
     );
+
+    if (!isGated) {
+      const decision = runDecisionEngine(bestMatch, initialCondition);
+      recommendedPath = decision.recommendedPath;
+    }
 
     // 4. Create Material record
     const material = await prisma.material.create({
