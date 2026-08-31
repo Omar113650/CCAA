@@ -1,11 +1,132 @@
 import * as xlsx from 'xlsx';
 import prisma from '../../utils/prisma.js';
 
+// ==========================================
+// PRESET PARSER FOR MULTILINGUAL COLUMN HEADERS
+// ==========================================
+const getPresetDbValue = (preset, keys) => {
+  if (!preset || !preset.defaultValues) return null;
+  for (const key of keys) {
+    if (preset.defaultValues[key] !== undefined) {
+      return preset.defaultValues[key];
+    }
+  }
+  return null;
+};
+
+const getReuseRecycleDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'إعادة الاستخدام / إعادة التدوير',
+    'Reuse / Recycle',
+    'القرار',
+    'Decision',
+    'Reuse/Recycle',
+    'إعادة الاستخدام'
+  ]);
+  if (!val) return 'إعادة الاستخدام';
+  const s = String(val).trim();
+  if (s.includes('تدوير') || s.includes('Recycle') || s.includes('recycle') || s.includes('إعادة التدوير')) {
+    return 'إعادة التدوير';
+  }
+  return 'إعادة الاستخدام';
+};
+
+const getDisassemblyDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'التفكيك',
+    'Disassembly',
+    'سهولة التفكيك',
+    'Disassembly Ease'
+  ]);
+  if (!val) return 'سهل';
+  const s = String(val).trim();
+  if (s.includes('صعب') || s.includes('Difficult') || s.includes('difficult') || s.includes('Hard') || s.includes('hard')) {
+    return 'صعب';
+  }
+  return 'سهل';
+};
+
+const getEnvironmentalBenefitDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'الفائدة البيئية',
+    'Environmental Benefit',
+    'الأثر البيئي',
+    'Environmental benefit',
+    'المنفعة البيئية'
+  ]);
+  if (!val) return 'Medium';
+  const s = String(val).toLowerCase().trim();
+  if (s.includes('high') || s.includes('عالية') || s.includes('عالي')) return 'High';
+  if (s.includes('low') || s.includes('منخفضة') || s.includes('منخفض')) return 'Low';
+  return 'Medium';
+};
+
+const getDisassemblyBurdenDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'عبء التفكيك',
+    'Disassembly Burden',
+    'Disassembly burden'
+  ]);
+  if (!val) return 'Medium';
+  const s = String(val).toLowerCase().trim();
+  if (s.includes('low') || s.includes('منخفض')) return 'Low';
+  if (s.includes('high') || s.includes('مرتفع') || s.includes('عالي')) return 'High';
+  return 'Medium';
+};
+
+const getLocalMarketDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'السوق المحلي',
+    'Local Market',
+    'السوق',
+    'Market'
+  ]);
+  if (!val) return 'Medium';
+  const s = String(val).toLowerCase().trim();
+  if (s.includes('low') || s.includes('منخفض')) return 'Low';
+  if (s.includes('high') || s.includes('عالي') || s.includes('مرتفع')) return 'High';
+  return 'Medium';
+};
+
+const getHazardousDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'مواد خطرة',
+    'Hazardous',
+    'خطرة',
+    'IsHazardous'
+  ]);
+  if (!val) return false;
+  const s = String(val).toLowerCase().trim();
+  return (s === 'نعم' || s === 'yes' || s === 'true' || s === '1');
+};
+
+const getMatrixDecision = (tech, econ, env) => {
+  if (tech === 'منخفض' || econ === 'منخفض') return 'Recycle';
+
+  if (
+    (tech === 'عالي' || tech === 'متوسط-عالي') &&
+    (econ === 'عالي' || econ === 'متوسط-عالي' || econ === 'متوسط') &&
+    (env === 'عالي' || env === 'متوسط')
+  ) {
+    return 'Reuse';
+  }
+
+  if (
+    tech === 'متوسط' &&
+    (econ === 'عالي' || econ === 'متوسط-عالي') &&
+    (env === 'عالي' || env === 'متوسط')
+  ) {
+    return 'Reuse';
+  }
+
+  return 'Recycle';
+};
+
 /**
  * The Gates Engine
- * Gate 1: Accessibility == Inaccessible && No Hazardous -> Separation after demolition
- * Gate 2: Hazardous == Yes -> Safe disposal
- * Gate 3: Condition == Damaged && No Hazardous -> Recycling
+ * Gate 1: Hazardous Check -> Safe disposal
+ * Gate 2: Inaccessible Check -> Recycling
+ * Gate 3: Damaged Condition Check -> Recycling
  */
 export function applyGates(element, condition, accessibility, isHazardous) {
   let isGated = false;
@@ -13,21 +134,21 @@ export function applyGates(element, condition, accessibility, isHazardous) {
   let recommendedPath = null;
 
   // Gate 1: Hazardous Check
-  if (isHazardous === true || String(isHazardous).trim() === 'نعم') {
+  if (isHazardous === true || String(isHazardous).trim() === 'نعم' || String(isHazardous).trim() === 'true') {
     isGated = true;
-    gatingReason = 'Hazardous material detected';
+    gatingReason = 'وجود مواد خطرة';
     recommendedPath = 'safe_disposal';
   } 
   // Gate 2: Inaccessible
   else if (accessibility === 'يتعذر') {
     isGated = true;
-    gatingReason = 'Inaccessible without hazardous materials';
-    recommendedPath = 'recycling'; // Adjusted to enum
+    gatingReason = 'يتعذر الوصول إلى العنصر';
+    recommendedPath = 'recycling';
   } 
   // Gate 3: Damaged
   else if (condition === 'تالفة') {
     isGated = true;
-    gatingReason = 'Damaged condition';
+    gatingReason = 'حالة العنصر تالفة';
     recommendedPath = 'recycling';
   }
 
@@ -36,83 +157,85 @@ export function applyGates(element, condition, accessibility, isHazardous) {
 
 /**
  * The Decision Engine (Matrix-Based)
- * Evaluates Technical, Economic, and Environmental factors to assign High/Medium/Low.
- * Then maps the combination to a recommended path.
+ * Evaluates Technical, Economic, and Environmental factors to assign levels.
+ * Maps combinations to a recommended path.
  */
-export function runDecisionEngine(element, condition, accessibility) {
-  const category = element?.category || 'غير محدد';
-  
-  // 1. Define Factor Levels (High = 3, Medium = 2, Low = 1, or string based)
-  let technical = 'Low';
-  let economic = 'Low';
-  let environmental = 'Low';
+export function runDecisionEngine(material, condition, accessibility) {
+  const preset = material.preset || material;
 
-  // --- Technical Factor (العامل الفني) ---
-  // Depends heavily on Condition and Accessibility
-  if (condition === 'جيدة' && accessibility === 'سهل') {
-    technical = 'High';
-  } else if ((condition === 'جيدة' && accessibility === 'متوسط') || (condition === 'متوسطة' && accessibility === 'سهل')) {
-    technical = 'Medium';
-  } else {
-    technical = 'Low';
-  }
-
-  // --- Economic Factor (العامل الاقتصادي) ---
-  // Depends on category value/resale potential
-  const highValueCategories = ['أبواب', 'نوافذ', 'إضاءة', 'أجهزة', 'أثاث', 'تكييف', 'صحي'];
-  const mediumValueCategories = ['حديد تسليح', 'زجاج', 'خشب', 'ألمنيوم'];
-  
-  if (highValueCategories.some(c => category.includes(c))) {
-    economic = 'High';
-  } else if (mediumValueCategories.some(c => category.includes(c))) {
-    economic = 'Medium';
-  } else {
-    // concrete, rubble, etc.
-    economic = 'Low';
-  }
-
-  // --- Environmental Factor (العامل البيئي) ---
-  // Depends on how much landfill is saved vs energy required to process
-  // Reuse saves most (High), Recycling saves some (Medium), Disposal saves nothing (Low)
-  const easilyRecyclable = ['حديد', 'ألمنيوم', 'طوب', 'خرسانة', 'خشب', 'زجاج'];
-  if (highValueCategories.some(c => category.includes(c))) {
-    environmental = 'High'; // Reuse prevents new manufacturing
-  } else if (easilyRecyclable.some(c => category.includes(c))) {
-    environmental = 'Medium'; // Recycling is better than landfill
-  } else {
-    environmental = 'Low';
-  }
-
-  // 2. Decision Matrix Mapping
-  // Format: "Technical-Economic-Environmental"
-  const matrix = {
-    // Technical is High
-    'High-High-High': 'direct_reuse',
-    'High-High-Medium': 'direct_reuse',
-    'High-Medium-Medium': 'direct_reuse',
-    'High-Low-Medium': 'recycling',
-    
-    // Technical is Medium
-    'Medium-High-High': 'refurbishment',
-    'Medium-High-Medium': 'refurbishment',
-    'Medium-Medium-Medium': 'refurbishment',
-    'Medium-Low-Medium': 'recycling',
-    'Medium-Low-Low': 'recycling',
-
-    // Technical is Low
-    'Low-High-High': 'recycling',
-    'Low-Medium-Medium': 'recycling',
-    'Low-Low-Low': 'recycling',
+  const normalizeCondition = (val) => {
+    if (!val) return 'جيدة';
+    const v = String(val).toLowerCase().trim();
+    if (v.includes('تالف') || v.includes('سيئ') || v.includes('poor') || v.includes('bad') || v.includes('damaged') || v.includes('broken')) return 'تالفة';
+    if (v.includes('متوسط') || v.includes('medium') || v.includes('fair') || v.includes('average')) return 'متوسطة';
+    return 'جيدة';
   };
 
-  const comboKey = `${technical}-${economic}-${environmental}`;
-  let recommendedPath = matrix[comboKey];
+  const normalizeAccessibility = (val) => {
+    if (!val) return 'سهل';
+    const v = String(val).toLowerCase().trim();
+    if (v.includes('صعب') || v.includes('يتعذر') || v.includes('hard') || v.includes('difficult') || v.includes('inaccessible') || v.includes('impossible')) return 'يتعذر';
+    if (v.includes('متوسط') || v.includes('medium') || v.includes('fair') || v.includes('average')) return 'متوسط';
+    return 'سهل';
+  };
 
-  // Fallback if combination not explicitly defined
-  if (!recommendedPath) {
-    if (technical === 'High' && economic === 'High') recommendedPath = 'direct_reuse';
-    else if (technical === 'Medium' || economic === 'High') recommendedPath = 'refurbishment';
-    else recommendedPath = 'recycling';
+  const normalizedCondition = normalizeCondition(condition);
+  const normalizedAccessibility = normalizeAccessibility(accessibility);
+
+  // 1. Technical Level
+  let technical = 'منخفض';
+  const reuseRecycle = getReuseRecycleDb(preset);
+  const disassembly = getDisassemblyDb(preset);
+
+  if (reuseRecycle === 'إعادة التدوير' || disassembly === 'صعب') {
+    technical = 'منخفض';
+  } else {
+    if (disassembly === 'سهل' && normalizedAccessibility === 'سهل') {
+      technical = 'عالي';
+    } else if ((disassembly === 'سهل' && normalizedAccessibility === 'متوسط') || (disassembly === 'متوسط' && normalizedAccessibility === 'سهل')) {
+      technical = 'متوسط-عالي';
+    } else {
+      technical = 'متوسط';
+    }
+  }
+
+  // 2. Environmental Level
+  let environmental = 'منخفض';
+  if (reuseRecycle === 'إعادة الاستخدام') {
+    const envBenefit = getEnvironmentalBenefitDb(preset);
+    if (envBenefit === 'High') environmental = 'عالي';
+    else if (envBenefit === 'Medium') environmental = 'متوسط';
+    else environmental = 'منخفض';
+  }
+
+  // 3. Economic Level
+  let economic = 'منخفض';
+  const burden = getDisassemblyBurdenDb(preset);
+  const market = getLocalMarketDb(preset);
+
+  if (burden === 'Low') {
+    if (market === 'High') economic = 'عالي';
+    else economic = 'متوسط';
+  } else if (burden === 'Medium') {
+    if (market === 'Low') economic = 'منخفض';
+    else if (market === 'Medium') economic = 'متوسط';
+    else economic = 'متوسط-عالي';
+  } else { // High Burden
+    if (market === 'High') economic = 'متوسط';
+    else economic = 'منخفض';
+  }
+
+  // 4. Matrix Decision
+  let recommendedPath = 'recycling';
+  if (reuseRecycle === 'إعادة التدوير' || disassembly === 'صعب') {
+    recommendedPath = 'recycling';
+  } else {
+    const decision = getMatrixDecision(technical, economic, environmental);
+    if (decision === 'Reuse') {
+      recommendedPath = normalizedCondition === 'جيدة' ? 'direct_reuse' : 'refurbishment';
+    } else {
+      recommendedPath = 'recycling';
+    }
   }
 
   const scores = { technical, economic, environmental };
@@ -120,7 +243,7 @@ export function runDecisionEngine(element, condition, accessibility) {
   return { 
     recommendedPath, 
     scores,
-    reason: `Matrix [F: ${technical}, E: ${economic}, V: ${environmental}] -> ${recommendedPath}` 
+    reason: `المنطق الهرمي الجديد [فني: ${technical} | اقتصادي: ${economic} | بيئي: ${environmental}] -> ${recommendedPath}`
   };
 }
 
@@ -141,12 +264,12 @@ export const processBOQUpload = async (fileBuffer, projectId) => {
 
   // 3. Iterate over BOQ items
   for (const row of boqData) {
-    const description = row['وصف العنصر كما يظهر في الحصر'] || row['الوصف'] || row['Description'];
-    const category = row['الفئة'] || 'غير محدد';
-    const quantity = row['الكمية'] || 1;
-    const unit = row['الوحدة'] || 'عدد';
-    const location = row['الموقع'] || '';
-    const notes = row['ملاحظات'] || '';
+    const description = row['وصف العنصر كما يظهر في الحصر'] || row['الوصف'] || row['Description'] || row['العنصر'] || row['وصف العنصر'] || row['Item'];
+    const category = row['الفئة'] || row['Category'] || 'غير محدد';
+    const quantity = row['الكمية'] || row['الكميه'] || row['Quantity'] || 1;
+    const unit = row['الوحدة'] || row['الوحده'] || row['Unit'] || 'عدد';
+    const location = row['الموقع'] || row['Location'] || '';
+    const notes = row['ملاحظات'] || row['Notes'] || '';
 
     if (!description) continue; // Skip empty rows
 
@@ -155,7 +278,7 @@ export const processBOQUpload = async (fileBuffer, projectId) => {
       description.includes(p.nameAr) || p.nameAr.includes(description)
     );
 
-    // If no exact substring match, just pick one with same category for MVP or leave null
+    // If no exact substring match, just pick one with same category
     if (!bestMatch) {
       bestMatch = presets.find(p => p.category === category);
     }
@@ -163,20 +286,12 @@ export const processBOQUpload = async (fileBuffer, projectId) => {
     const presetId = bestMatch ? bestMatch.id : null;
     let isHazardous = false;
 
-    if (bestMatch && bestMatch.defaultValues) {
-       // Try to extract hazardous info from DB
-       const defVals = bestMatch.defaultValues;
-       if (defVals['مواد خطرة'] === 'نعم' || defVals['Hazardous'] === 'Yes' || defVals['خطرة'] === 'نعم') {
-          isHazardous = true;
-       }
+    if (bestMatch) {
+      isHazardous = getHazardousDb(bestMatch);
     }
 
-    // Since we don't have Condition/Accessibility in BOQ yet (done by AI or manual later),
-    // We set default values to simulate the gates if they were provided, or leave them for later.
-    // We will assume "جيدة" (Good) and "سهل" (Easy) for initial upload, unless the AI step is run immediately.
-    // Here we will run the gates with dummy data for now, user can update them later via API.
-    const initialCondition = 'جيدة'; // 'جيدة' / 'متوسطة' / 'تالفة'
-    const initialAccessibility = 'سهل'; // 'سهل' / 'متوسط' / 'يتعذر'
+    const initialCondition = 'جيدة';
+    const initialAccessibility = 'سهل';
 
     let { isGated, gatingReason, recommendedPath } = applyGates(
       bestMatch, 

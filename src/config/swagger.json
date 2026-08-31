@@ -686,7 +686,7 @@
     "/api/projects/{projectId}/analyses": {
       "post": {
         "summary": "Run CCAA Analysis Engine",
-        "description": "Triggers the Hierarchical Decision Logic analysis on the project materials and saves the result.",
+        "description": "Triggers the updated Hierarchical Decision Logic analysis. It processes materials through 3 Gates (Hazardous, Inaccessible, Damaged), evaluates intermediate category levels (Technical: High/Med-High/Med/Low; Environmental: High/Med/Low; Economic: High/Med-High/Med/Low), maps the combination using the decision matrix to path, and appends a Gemini-generated Arabic strategy recommendation report.",
         "parameters": [
           { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],

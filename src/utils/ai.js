@@ -63,3 +63,45 @@ export const assessElementImage = async (imageBuffer, mimeType, elementDescripti
     return { condition: 'متوسطة', accessibility: 'متوسط' };
   }
 };
+
+/**
+ * Generates a final demolition strategy text using AI.
+ * @param {Array} analyzedMaterials - List of analyzed materials
+ * @param {Object} project - The project details
+ * @returns {Promise<string|null>} - The AI recommendation
+ */
+export const generateAIStrategyRecommendation = async (analyzedMaterials, project) => {
+  try {
+    if (!process.env.GEMINI_API_KEY) {
+      return null;
+    }
+    const prompt = `
+    أنت خبير في الاقتصاد الدائري والهدم الانتقائي للمباني في مصر.
+    قم بصياغة توصية نهائية وخطوات مرتبة ومتسلسلة لعملية الهدم والتفكيك بناءً على قائمة العناصر التالية التي تم تحليلها للمشروع "${project.name}":
+    
+    العناصر:
+    ${analyzedMaterials.map(m => `- ${m.name}: الكمية: ${m.quantity} ${m.unit} | التوصية: ${m.recommendedPath} (${m.priority})`).join('\n')}
+    
+    سياق المشروع:
+    - هل توجد مواد خطرة؟ ${project.hasHazardousMaterials ? 'نعم' : 'لا'}
+    - قريب من مياه جوفية أو تربة غير مستقرة؟ ${project.nearGroundwaterOrUnstableSoil ? 'نعم' : 'لا'}
+    - المسافة إلى الجيران: ${project.distanceToNeighbors || 'غير محدد'}
+    - منطقة ذات كثافة سكانية وحساسة للتلوث؟ ${project.isDensePollutionSensitiveArea ? 'نعم' : 'لا'}
+    
+    اكتب تقريراً منسقاً باللغة العربية يحتوي على:
+    1. ملخص تنفيذي لجدوى التفكيك واسترجاع المواد.
+    2. الترتيب الزمني المقترح لعمليات التفكيك والهدم (على سبيل المثال: إزالة المواد الخطرة أولاً، ثم التفكيك اليدوي للعناصر سهلة الوصول، ثم الهدم الميكانيكي للبنية الإنشائية).
+    3. توصيات للأمان والبيئة بناءً على جيران المشروع والمياه الجوفية.
+    
+    اجعل التوصيات عملية ومحددة ومناسبة للسياق المصري.
+    `;
+
+    const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const result = await model.generateContent(prompt);
+    return result.response.text().trim();
+  } catch (error) {
+    console.error('Error generating AI strategy:', error);
+    return null;
+  }
+};
+

@@ -1,26 +1,9 @@
 /**
  * CCAA Analysis Engine — Hierarchical Decision Logic (منطق القرار الهرمي)
- * 
- * Analyzes each material based on the CCAA Hierarchical Decision Framework:
- * 1. Evaluates 5 Gating Criteria (Pass/Fail)
- * 2. Groups criteria into 3 main families (TECHNICAL, ECONOMIC, ENVIRONMENTAL)
- * 3. Follows the Decision Tree Pipeline to classify each family (High, Medium, Low)
- * 4. Applies a 27-combination Lookup Table tailored for the Egyptian Market (Economic priority)
- * 5. Integrates Safety Contexts & Item-Level Access filters
- * 6. Generates Demolition Strategy, Financial, and Environmental reports
+ * Updated to align with CCAA Flowchart, notebooks, and economic local market matrices.
  */
 
-// ==========================================
-// SCORING WEIGHTS FOR INTERMEDIATE STATS (sum = 1.0)
-// ==========================================
-const WEIGHTS = {
-  technicalFeasibility: 0.25,
-  environmentalPerformance: 0.20,
-  economicViability: 0.20,
-  safetyContamination: 0.20,
-  timeLogistics: 0.10,
-  marketPolicy: 0.05,
-};
+import { generateAIStrategyRecommendation } from '../../utils/ai.js';
 
 // ==========================================
 // BASE VALUES PER CATEGORY (EGP per unit)
@@ -54,214 +37,186 @@ const CO2_SAVINGS = {
 };
 
 // ==========================================
-// 27-COMBINATION LOOKUP TABLE (Egyptian Market Context)
+// PRESET PARSER FOR MULTILINGUAL COLUMN HEADERS
 // ==========================================
-const DECISION_MATRIX = {
-  // TECHNICAL - ECONOMIC - ENVIRONMENTAL
-  'عالي-عالي-عالي': {
-    priority: 'قصوى',
-    path: 'direct_reuse',
-    description: 'أولوية قصوى: كافة المعايير تدعم قرار إعادة الاستخدام المباشر للعنصر.',
-  },
-  'عالي-عالي-متوسط': {
-    priority: 'عالية',
-    path: 'direct_reuse',
-    description: 'أولوية عالية: جدوى فنية واقتصادية ممتازة، مع أداء بيئي متوسط.',
-  },
-  'عالي-عالي-منخفض': {
-    priority: 'عالية',
-    path: 'direct_reuse',
-    description: 'أولوية عالية: توافق ممتاز في الجدوى الفنية والاقتصادية (أولوية السوق المصري بالرغم من ضعف الأداء البيئي).',
-  },
-  'عالي-متوسط-عالي': {
-    priority: 'عالية',
-    path: 'direct_reuse',
-    description: 'أولوية عالية: جدوى فنية وبيئية قوية مع ملاءمة اقتصادية مقبولة.',
-  },
-  'عالي-متوسط-متوسط': {
-    priority: 'متوسطة',
-    path: 'refurbishment',
-    description: 'أولوية متوسطة: جدوى فنية ممتازة مع حاجة لإعادة تأهيل خفيفة للتوافق الاقتصادي والبيئي.',
-  },
-  'عالي-متوسط-منخفض': {
-    priority: 'متوسطة',
-    path: 'refurbishment',
-    description: 'أولوية متوسطة: فني ممتاز واقتصادي متوسط، يوصى بالتفكيك وإعادة التأهيل.',
-  },
-  'عالي-منخفض-عالي': {
-    priority: 'منخفضة',
-    path: 'recycling',
-    description: 'أولوية منخفضة: جدوى اقتصادية ضعيفة تمنع إعادة الاستخدام المباشر؛ يُفضل التوجيه لإعادة التدوير.',
-  },
-  'عالي-منخفض-متوسط': {
-    priority: 'منخفضة',
-    path: 'recycling',
-    description: 'أولوية منخفضة: انخفاض الجدوى الاقتصادية يرجح خيار التفكيك وإعادة التدوير.',
-  },
-  'عالي-منخفض-منخفض': {
-    priority: 'منخفضة',
-    path: 'safe_disposal',
-    description: 'أولوية منخفضة (غير مجدي): ضعف العائد الاقتصادي والأثر البيئي يفرض التخلص الآمن.',
-  },
-
-  'متوسط-عالي-عالي': {
-    priority: 'عالية',
-    path: 'refurbishment',
-    description: 'أولوية عالية: الجدوى الاقتصادية والبيئية كافية لتعزيز التفكيك وإعادة التأهيل ولو كان الجانب الفني متوسطاً.',
-  },
-  'متوسط-عالي-متوسط': {
-    priority: 'عالية',
-    path: 'refurbishment',
-    description: 'أولوية عالية: توافق اقتصادي ممتاز يدعم عمليات إعادة التأهيل للعنصر.',
-  },
-  'متوسط-عالي-منخفض': {
-    priority: 'متوسطة',
-    path: 'refurbishment',
-    description: 'أولوية متوسطة: جدوى اقتصادية ممتازة تدعم الاسترجاع بالرغم من ضعف الأداء البيئي.',
-  },
-  'متوسط-متوسط-عالي': {
-    priority: 'متوسطة',
-    path: 'refurbishment',
-    description: 'أولوية متوسطة: أداء متوازن يميل لإعادة التأهيل نظراً للجدوى البيئية الجيدة.',
-  },
-  'متوسط-متوسط-متوسط': {
-    priority: 'متوسطة',
-    path: 'refurbishment',
-    description: 'أولوية متوسطة: معايير متعادلة تدعم التفكيك الانتقائي وإعادة التأهيل.',
-  },
-  'متوسط-متوسط-منخفض': {
-    priority: 'منخفضة',
-    path: 'recycling',
-    description: 'أولوية منخفضة: يُقترح التوجيه لإعادة التدوير لضعف العائد البيئي المباشر.',
-  },
-  'متوسط-منخفض-عالي': {
-    priority: 'منخفضة',
-    path: 'recycling',
-    description: 'أولوية منخفضة: الأداء البيئي ممتاز ولكن ضعف الجدوى الاقتصادية يوجهنا لإعادة التدوير.',
-  },
-  'متوسط-منخفض-متوسط': {
-    priority: 'منخفضة',
-    path: 'recycling',
-    description: 'أولوية منخفضة: يُقترح إعادة التدوير لضعف المردود المالي المباشر.',
-  },
-  'متوسط-منخفض-منخفض': {
-    priority: 'غير مجدي',
-    path: 'safe_disposal',
-    description: 'غير مجدي: ضعف الجدوى الاقتصادية والبيئية يستدعي التخلص الآمن والتوجيه للمكبات المعتمدة.',
-  },
-
-  'منخفض-عالي-عالي': {
-    priority: 'متوسطة',
-    path: 'recycling',
-    description: 'أولوية متوسطة: على الرغم من التحديات الفنية، فإن العائد الاقتصادي والبيئي المرتفع يدعم التدوير والاستخلاص.',
-  },
-  'منخفض-عالي-متوسط': {
-    priority: 'منخفضة',
-    path: 'recycling',
-    description: 'أولوية منخفضة: تحديات فنية كبيرة تعوق الاسترجاع المباشر بالرغم من توفر السوق.',
-  },
-  'منخفض-عالي-منخفض': {
-    priority: 'منخفضة',
-    path: 'recycling',
-    description: 'أولوية منخفضة: صعوبة التفكيك الفنية مع ضعف البيئة توجه المادة لإعادة التدوير فقط للاستفادة الاقتصادية.',
-  },
-  'منخفض-متوسط-عالي': {
-    priority: 'منخفضة',
-    path: 'recycling',
-    description: 'أولوية منخفضة: يُقترح إعادة التدوير لوجود عائد بيئي مقبول مع صعوبة التفكيك الفنية.',
-  },
-  'منخفض-متوسط-متوسط': {
-    priority: 'منخفضة',
-    path: 'recycling',
-    description: 'أولوية منخفضة: صعوبات فنية مع مردود اقتصادي متوسط يوجه المادة لإعادة التدوير.',
-  },
-  'منخفض-متوسط-منخفض': {
-    priority: 'منخفضة جداً (ملغى للجدوى)',
-    path: 'safe_disposal',
-    description: 'ملغى للجدوى: الصعوبة الفنية مع انخفاض العوائد الاقتصادية والبيئية تجعل التفكيك غير مجدٍ.',
-  },
-  'منخفض-منخفض-عالي': {
-    priority: 'منخفضة جداً (ملغى للجدوى)',
-    path: 'safe_disposal',
-    description: 'ملغى للجدوى: الأداء البيئي ممتاز ولكن صعوبة الفك وضعف الجدوى الاقتصادية يلغيان خيار التفكيك.',
-  },
-  'منخفض-منخفض-متوسط': {
-    priority: 'غير مجدي (عدم تفكيك)',
-    path: 'safe_disposal',
-    description: 'غير مجدي: يُقترح الهدم التقليدي والتخلص الآمن نظراً لتدني جميع المعايير.',
-  },
-  'منخفض-منخفض-منخفض': {
-    priority: 'غير مجدي (عدم تفكيك)',
-    path: 'safe_disposal',
-    description: 'غير مجدي: انخفاض تام في كافة معايير التفكيك والاسترجاع؛ يوصى بالهدم التقليدي والتخلص الآمن.',
-  },
-};
-
-/**
- * Extract score from a criteria JSON field
- * Defaults to 5 (neutral) if not provided
- */
-const getScore = (criteriaJson) => {
-  if (!criteriaJson) return 5;
-  if (typeof criteriaJson === 'object' && criteriaJson.score !== undefined) {
-    return Math.min(10, Math.max(0, Number(criteriaJson.score)));
+const getPresetDbValue = (preset, keys) => {
+  if (!preset || !preset.defaultValues) return null;
+  for (const key of keys) {
+    if (preset.defaultValues[key] !== undefined) {
+      return preset.defaultValues[key];
+    }
   }
-  return 5;
+  return null;
 };
 
-/**
- * Evaluate Technical Family (TECHNICAL)
- * Uses hierarchical decision logic based on technicalFeasibility & timeLogistics
- */
-const evaluateTechnicalLevel = (techFeasibility, timeLogistics) => {
-  if (techFeasibility >= 7.5) {
-    return timeLogistics >= 5.0 ? 'عالي' : 'متوسط';
-  } else if (techFeasibility >= 4.0) {
-    return timeLogistics >= 5.0 ? 'متوسط' : 'منخفض';
+const getReuseRecycleDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'إعادة الاستخدام / إعادة التدوير',
+    'Reuse / Recycle',
+    'القرار',
+    'Decision',
+    'Reuse/Recycle',
+    'إعادة الاستخدام'
+  ]);
+  if (!val) return 'إعادة الاستخدام';
+  const s = String(val).trim();
+  if (s.includes('تدوير') || s.includes('Recycle') || s.includes('recycle') || s.includes('إعادة التدوير')) {
+    return 'إعادة التدوير';
+  }
+  return 'إعادة الاستخدام';
+};
+
+const getDisassemblyDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'التفكيك',
+    'Disassembly',
+    'سهولة التفكيك',
+    'Disassembly Ease'
+  ]);
+  if (!val) return 'سهل';
+  const s = String(val).trim();
+  if (s.includes('صعب') || s.includes('Difficult') || s.includes('difficult') || s.includes('Hard') || s.includes('hard')) {
+    return 'صعب';
+  }
+  return 'سهل';
+};
+
+const getEnvironmentalBenefitDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'الفائدة البيئية',
+    'Environmental Benefit',
+    'الأثر البيئي',
+    'Environmental benefit',
+    'المنفعة البيئية'
+  ]);
+  if (!val) return 'Medium';
+  const s = String(val).toLowerCase().trim();
+  if (s.includes('high') || s.includes('عالية') || s.includes('عالي')) return 'High';
+  if (s.includes('low') || s.includes('منخفضة') || s.includes('منخفض')) return 'Low';
+  return 'Medium';
+};
+
+const getDisassemblyBurdenDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'عبء التفكيك',
+    'Disassembly Burden',
+    'Disassembly burden'
+  ]);
+  if (!val) return 'Medium';
+  const s = String(val).toLowerCase().trim();
+  if (s.includes('low') || s.includes('منخفض')) return 'Low';
+  if (s.includes('high') || s.includes('مرتفع') || s.includes('عالي')) return 'High';
+  return 'Medium';
+};
+
+const getLocalMarketDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'السوق المحلي',
+    'Local Market',
+    'السوق',
+    'Market'
+  ]);
+  if (!val) return 'Medium';
+  const s = String(val).toLowerCase().trim();
+  if (s.includes('low') || s.includes('منخفض')) return 'Low';
+  if (s.includes('high') || s.includes('عالي') || s.includes('مرتفع')) return 'High';
+  return 'Medium';
+};
+
+const getHazardousDb = (preset) => {
+  const val = getPresetDbValue(preset, [
+    'مواد خطرة',
+    'Hazardous',
+    'خطرة',
+    'IsHazardous'
+  ]);
+  if (!val) return false;
+  const s = String(val).toLowerCase().trim();
+  return (s === 'نعم' || s === 'yes' || s === 'true' || s === '1');
+};
+
+// ==========================================
+// CATEGORY LEVEL EVALUATION FUNCTIONS
+// ==========================================
+export const evaluateTechnicalLevel = (preset, accessibility) => {
+  const reuseRecycle = getReuseRecycleDb(preset);
+  const disassembly = getDisassemblyDb(preset);
+
+  if (reuseRecycle === 'إعادة التدوير' || disassembly === 'صعب') {
+    return 'منخفض';
+  }
+
+  if (disassembly === 'سهل' && accessibility === 'سهل') {
+    return 'عالي';
+  } else if ((disassembly === 'سهل' && accessibility === 'متوسط') || (disassembly === 'متوسط' && accessibility === 'سهل')) {
+    return 'متوسط-عالي';
+  } else {
+    return 'متوسط';
+  }
+};
+
+export const evaluateEnvironmentalLevel = (preset) => {
+  const reuseRecycle = getReuseRecycleDb(preset);
+  if (reuseRecycle === 'إعادة التدوير') {
+    return 'منخفض';
+  }
+
+  const envBenefit = getEnvironmentalBenefitDb(preset);
+  if (envBenefit === 'High') {
+    return 'عالي';
+  } else if (envBenefit === 'Medium') {
+    return 'متوسط';
   } else {
     return 'منخفض';
   }
 };
 
-/**
- * Evaluate Economic Family (ECONOMIC)
- * Prioritizes economic factors to align with Egyptian market dynamics
- */
-const evaluateEconomicLevel = (economicViability, marketPolicy) => {
-  if (economicViability >= 7.0) {
-    return marketPolicy >= 4.0 ? 'عالي' : 'متوسط';
-  } else if (economicViability >= 4.0) {
-    return marketPolicy >= 5.0 ? 'متوسط' : 'منخفض';
-  } else {
+export const evaluateEconomicLevel = (preset) => {
+  const burden = getDisassemblyBurdenDb(preset);
+  const market = getLocalMarketDb(preset);
+
+  if (burden === 'Low') {
+    if (market === 'High') return 'عالي';
+    return 'متوسط';
+  } else if (burden === 'Medium') {
+    if (market === 'Low') return 'منخفض';
+    if (market === 'Medium') return 'متوسط';
+    return 'متوسط-عالي';
+  } else { // High Burden
+    if (market === 'High') return 'متوسط';
     return 'منخفض';
   }
 };
 
-/**
- * Evaluate Environmental Family (ENVIRONMENTAL)
- * Accounts for environmentalPerformance, safetyContamination, and green certification status
- */
-const evaluateEnvironmentalLevel = (envPerformance, safetyContam, hasGreenOverride) => {
-  let level = 'منخفض';
-  if (envPerformance >= 7.5) {
-    level = safetyContam >= 5.0 ? 'عالي' : 'متوسط';
-  } else if (envPerformance >= 4.0) {
-    level = safetyContam >= 4.0 ? 'متوسط' : 'منخفض';
+// ==========================================
+// DECISION MATRIX
+// ==========================================
+const getMatrixDecision = (tech, econ, env) => {
+  if (tech === 'منخفض' || econ === 'منخفض') return 'Recycle';
+
+  if (
+    (tech === 'عالي' || tech === 'متوسط-عالي') &&
+    (econ === 'عالي' || econ === 'متوسط-عالي' || econ === 'متوسط') &&
+    (env === 'عالي' || env === 'متوسط')
+  ) {
+    return 'Reuse';
   }
 
-  // Green / high sustainability context boost
-  if (hasGreenOverride && level === 'متوسط') {
-    level = 'عالي';
+  if (
+    tech === 'متوسط' &&
+    (econ === 'عالي' || econ === 'متوسط-عالي') &&
+    (env === 'عالي' || env === 'متوسط')
+  ) {
+    return 'Reuse';
   }
-  return level;
+
+  return 'Recycle';
 };
 
-/**
- * Map high/medium/low levels of the 3 families to a unified reusability score (0-100)
- */
 const calculateHierarchicalScore = (tech, econ, env) => {
   const scale = {
-    'عالي': 3,
+    'عالي': 4,
+    'متوسط-عالي': 3,
     'متوسط': 2,
     'منخفض': 1,
   };
@@ -269,28 +224,20 @@ const calculateHierarchicalScore = (tech, econ, env) => {
   const econVal = scale[econ] || 1;
   const envVal = scale[env] || 1;
 
-  // Weighted composition (Technical = 15, Economic = 10, Environmental = 5)
-  // Max possible: 3*15 + 3*10 + 3*5 = 90
-  // Min possible: 1*15 + 1*10 + 1*5 = 30
   const composite = (techVal * 15) + (econVal * 10) + (envVal * 5);
-  
-  // Normalize to 0 - 100 range
-  return parseFloat(((composite / 90) * 100).toFixed(1));
+  return parseFloat(((composite / 120) * 100).toFixed(1));
 };
 
-/**
- * Estimate material value based on category, quantity, path, and score
- */
 const estimateValue = (material, path, score) => {
   const category = material.category?.toLowerCase() || 'default';
   const baseValuePerUnit = BASE_VALUES[category] || BASE_VALUES.default;
   const quantity = Number(material.quantity) || 0;
 
   const pathMultipliers = {
-    direct_reuse: 0.85,    // 85% of market value
-    refurbishment: 0.60,   // 60% after refurbishment costs
-    recycling: 0.25,       // 25% for raw material recycling
-    safe_disposal: -0.15,  // Negative (represents cleanup & disposal costs)
+    direct_reuse: 0.85,
+    refurbishment: 0.60,
+    recycling: 0.25,
+    safe_disposal: -0.15,
   };
 
   const multiplier = pathMultipliers[path] || 0;
@@ -299,111 +246,85 @@ const estimateValue = (material, path, score) => {
   return parseFloat((baseValuePerUnit * quantity * multiplier * scoreBonus).toFixed(2));
 };
 
-/**
- * Analyze a single material using Hierarchical Decision Logic (HDL)
- */
+// ==========================================
+// MAIN MATERIAL ANALYSIS
+// ==========================================
 export const analyzeMaterial = (material, projectGating = {}) => {
-  const techFeasibility = getScore(material.technicalFeasibility);
-  const envPerformance = getScore(material.environmentalPerformance);
-  const economicViability = getScore(material.economicViability);
-  const safetyContamination = getScore(material.safetyContamination);
-  const timeLogistics = getScore(material.timeLogistics);
-  const marketPolicy = getScore(material.marketPolicy);
-
-  // 1. Evaluate Levels for the 3 Families
-  const technicalLevel = evaluateTechnicalLevel(techFeasibility, timeLogistics);
-  const economicLevel = evaluateEconomicLevel(economicViability, marketPolicy);
-
-  // Check if green / sustainable environment is active
-  const hasGreenOverride = projectGating.isDensePollutionSensitiveArea || !!material.overrides?.greenCertificate;
-  const environmentalLevel = evaluateEnvironmentalLevel(envPerformance, safetyContamination, hasGreenOverride);
-
-  // 2. Evaluate the 5 Gates (Pass/Fail)
-  const gates = {
-    G1: { name: 'وجود مواد خطرة', passed: true, reason: null },
-    G2: { name: 'الاستقرار الإنشائي أثناء الإزالة', passed: true, reason: null },
-    G3: { name: 'مخاطر سلامة العمال', passed: true, reason: null },
-    G4: { name: 'إمكانية الوصول', passed: true, reason: null },
-    G5: { name: 'حد فعالية التكلفة', passed: true, reason: null },
+  const overrides = material.overrides || {};
+  
+  const normalizeAccessibility = (val) => {
+    if (!val) return 'سهل';
+    const v = String(val).toLowerCase().trim();
+    if (v.includes('صعب') || v.includes('يتعذر') || v.includes('hard') || v.includes('difficult') || v.includes('inaccessible') || v.includes('impossible')) return 'يتعذر';
+    if (v.includes('متوسط') || v.includes('medium') || v.includes('fair') || v.includes('average')) return 'متوسط';
+    return 'سهل';
   };
 
-  // G1: Hazardous Materials
-  if (projectGating.hasHazardousMaterials && safetyContamination <= 4) {
-    gates.G1.passed = false;
-    gates.G1.reason = 'وجود مواد خطرة في سياق المشروع مع ضعف تقييم السلامة للعنصر.';
-  } else if (safetyContamination <= 2) {
-    gates.G1.passed = false;
-    gates.G1.reason = 'العنصر يحتوي على ملوثات خطرة جداً تمنع إعادة الاستخدام.';
-  }
+  const normalizeCondition = (val) => {
+    if (!val) return 'جيدة';
+    const v = String(val).toLowerCase().trim();
+    if (v.includes('تالف') || v.includes('سيئ') || v.includes('poor') || v.includes('bad') || v.includes('damaged') || v.includes('broken')) return 'تالفة';
+    if (v.includes('متوسط') || v.includes('medium') || v.includes('fair') || v.includes('average')) return 'متوسطة';
+    return 'جيدة';
+  };
 
-  // G2: Structural Stability
-  if (techFeasibility <= 2 || !!material.overrides?.structuralInstability) {
-    gates.G2.passed = false;
-    gates.G2.reason = 'ضعف الاستقرار الإنشائي أثناء الإزالة يمنع عملية التفكيك الآمن.';
-  }
+  const isHazardous = overrides.isHazardous === true || overrides.isHazardous === 'نعم' || overrides.isHazardous === 'yes' || overrides.isHazardous === 'true' || 
+    (overrides.isHazardous === undefined && getHazardousDb(material.preset));
+  
+  const accessibility = normalizeAccessibility(overrides.accessibility);
+  const condition = normalizeCondition(overrides.condition);
 
-  // G3: Worker Safety
-  if (safetyContamination <= 3 || !!material.overrides?.workerSafetyRisk) {
-    gates.G3.passed = false;
-    gates.G3.reason = 'مخاطر عالية على سلامة العمال تمنع تفكيك العنصر يدوياً.';
-  }
+  // Gates Evaluation
+  const gates = {
+    G1: { name: 'وجود مواد خطرة', passed: !isHazardous, reason: isHazardous ? 'مواد خطرة متبقية في العنصر' : null },
+    G2: { name: 'إمكانية الوصول', passed: accessibility !== 'يتعذر', reason: accessibility === 'يتعذر' ? 'يتعذر الوصول المباشر للعنصر لتفكيكه' : null },
+    G3: { name: 'حالة العنصر', passed: condition !== 'تالفة', reason: condition === 'تالفة' ? 'حالة العنصر تالفة ومحطمة' : null },
+  };
 
-  // G4: Access to Connections (evaluated at item level)
-  if (!!material.overrides?.inaccessible) {
-    gates.G4.passed = false;
-    gates.G4.reason = 'تعذر الوصول المباشر للروابط والتوصيلات الخاصة بهذا العنصر.';
-  }
-
-  // G5: Cost-Effectiveness Threshold
-  if (economicViability <= 2) {
-    gates.G5.passed = false;
-    gates.G5.reason = 'تكلفة تفكيك واستخلاص المادة تتجاوز قيمتها السوقية التقديرية.';
-  }
-
-  // 3. Apply Safety Contexts Filter (سياقات الأمان)
-  // Neighbors proximity or groundwater presence forces dismantling even if cost effectiveness (G5) fails.
-  const safetyContextActive = 
-    projectGating.nearGroundwaterOrUnstableSoil || 
-    projectGating.isDensePollutionSensitiveArea ||
-    (projectGating.distanceToNeighbors && 
-     /close|adjacent|dense|قريب|متلاصق/i.test(projectGating.distanceToNeighbors));
-
-  let isG5Bypassed = false;
-  if (!gates.G5.passed && safetyContextActive) {
-    gates.G5.passed = true;
-    gates.G5.reason = 'تم تجاوز حد التكلفة لمقتضيات الأمان البيئي والإنشائي للموقع المحيط (مياه جوفية أو مباني متلاصقة).';
-    isG5Bypassed = true;
-  }
-
-  // Determine if gated out of deconstruction (G1, G2, G3 must pass. G4 is item-level and G5 is economic/safety)
   const isGated = !gates.G1.passed || !gates.G2.passed || !gates.G3.passed;
   const gatingReason = [gates.G1.reason, gates.G2.reason, gates.G3.reason]
     .filter(Boolean)
     .join(' | ');
 
-  // 4. Lookup from the 27-Combination Decision Matrix
-  const lookupKey = `${technicalLevel}-${economicLevel}-${environmentalLevel}`;
-  const decision = DECISION_MATRIX[lookupKey] || {
-    priority: 'متوسطة',
-    path: 'recycling',
-    description: 'تصنيف افتراضي لعدم تطابق التوليفة.',
-  };
+  // Compute Levels
+  const technicalLevel = evaluateTechnicalLevel(material.preset, accessibility);
+  const economicLevel = evaluateEconomicLevel(material.preset);
+  const environmentalLevel = evaluateEnvironmentalLevel(material.preset);
 
-  // If any safety gate failed, force safe disposal regardless of lookup
-  let recommendedPath = isGated ? 'safe_disposal' : decision.path;
-  let priority = isGated ? 'غير مجدي (عدم تفكيك)' : decision.priority;
+  // Recommended Path Selection
+  let recommendedPath = null;
+  if (isHazardous) {
+    recommendedPath = 'safe_disposal';
+  } else if (isGated) {
+    recommendedPath = 'recycling';
+  } else {
+    const reuseRecycle = getReuseRecycleDb(material.preset);
+    const disassembly = getDisassemblyDb(material.preset);
 
-  // Item-level Access Filter check (G4)
-  // If the item itself has poor access, we degrade the path to recycling/safe_disposal
-  if (!gates.G4.passed && !isGated) {
-    recommendedPath = recommendedPath === 'direct_reuse' ? 'refurbishment' : 'recycling';
-    priority = 'منخفضة (لصعوبة الوصول)';
+    if (reuseRecycle === 'إعادة التدوير' || disassembly === 'صعب') {
+      recommendedPath = 'recycling';
+    } else {
+      const decision = getMatrixDecision(technicalLevel, economicLevel, environmentalLevel);
+      if (decision === 'Reuse') {
+        recommendedPath = condition === 'جيدة' ? 'direct_reuse' : 'refurbishment';
+      } else {
+        recommendedPath = 'recycling';
+      }
+    }
   }
 
-  // Calculate final score
-  const reusabilityScore = calculateHierarchicalScore(technicalLevel, economicLevel, environmentalLevel);
+  const priority = isGated && isHazardous ? 'غير مجدي (عدم تفكيك)' : 
+    (recommendedPath === 'direct_reuse' ? 'أولوية قصوى' : 
+     (recommendedPath === 'refurbishment' ? 'أولوية متوسطة' : 'أولوية منخفضة'));
 
-  // Estimate final value
+  const description = {
+    direct_reuse: 'أولوية قصوى: كافة المعايير تدعم قرار إعادة الاستخدام المباشر للعنصر.',
+    refurbishment: 'أولوية متوسطة: العنصر صالح لإعادة الاستخدام بعد الترميم والتأهيل.',
+    recycling: 'أولوية منخفضة: العنصر غير مناسب للاستخدام المباشر ويوجه لإعادة التدوير.',
+    safe_disposal: 'تخلص آمن: المواد خطرة وتتطلب التخلص الآمن لحماية البيئة.'
+  }[recommendedPath] || 'أولوية منخفضة: إعادة التدوير لعدم مطابقة شروط التفكيك.';
+
+  const reusabilityScore = calculateHierarchicalScore(technicalLevel, economicLevel, environmentalLevel);
   const estimatedValue = estimateValue(material, recommendedPath, reusabilityScore);
 
   return {
@@ -413,12 +334,12 @@ export const analyzeMaterial = (material, projectGating = {}) => {
     quantity: Number(material.quantity),
     unit: material.unit,
     scores: {
-      technicalFeasibility: techFeasibility,
-      environmentalPerformance: envPerformance,
-      economicViability: economicViability,
-      safetyContamination: safetyContamination,
-      timeLogistics: timeLogistics,
-      marketPolicy: marketPolicy,
+      technicalFeasibility: technicalLevel === 'عالي' ? 9 : (technicalLevel === 'متوسط-عالي' ? 7 : (technicalLevel === 'متوسط' ? 5 : 2)),
+      environmentalPerformance: environmentalLevel === 'عالي' ? 9 : (environmentalLevel === 'متوسط' ? 6 : 2),
+      economicViability: economicLevel === 'عالي' ? 9 : (economicLevel === 'متوسط-عالي' ? 7 : (economicLevel === 'متوسط' ? 5 : 2)),
+      safetyContamination: isHazardous ? 2 : 9,
+      timeLogistics: accessibility === 'سهل' ? 9 : (accessibility === 'متوسط' ? 6 : 2),
+      marketPolicy: 5,
     },
     levels: {
       technical: technicalLevel,
@@ -426,12 +347,10 @@ export const analyzeMaterial = (material, projectGating = {}) => {
       environmental: environmentalLevel,
     },
     gates,
-    safetyContextActive,
-    isG5Bypassed,
     reusabilityScore,
     recommendedPath,
     priority,
-    description: decision.description,
+    description,
     estimatedValue,
     isGated,
     gatingReason: gatingReason || null,
@@ -441,9 +360,9 @@ export const analyzeMaterial = (material, projectGating = {}) => {
   };
 };
 
-/**
- * Generate demolition strategy (ordered sequence)
- */
+// ==========================================
+// REPORT GENERATORS
+// ==========================================
 const generateDemolitionStrategy = (analyzedMaterials) => {
   const order = ['safe_disposal', 'recycling', 'refurbishment', 'direct_reuse'];
 
@@ -463,8 +382,8 @@ const generateDemolitionStrategy = (analyzedMaterials) => {
         estimatedValue: m.estimatedValue,
         priority: m.priority,
         description: m.description,
-        accessibility: m.gates.G4.passed ? 'سهل الوصول والتفكيك' : 'صعب الوصول - تم تخفيض التوصية',
-        notes: m.isGated ? m.gatingReason : (m.isG5Bypassed ? 'تم تجاوز تكلفة التفكيك لدواعي الأمان' : null),
+        accessibility: m.gates.G2.passed ? 'سهل الوصول والتفكيك' : 'صعب الوصول - تم تخفيض التوصية',
+        notes: m.isGated ? m.gatingReason : null,
       })),
   })).filter((g) => g.materials.length > 0);
 
@@ -472,14 +391,11 @@ const generateDemolitionStrategy = (analyzedMaterials) => {
     totalPhases: groups.length,
     sequence: groups,
     safetyWarnings: analyzedMaterials
-      .filter((m) => m.isGated)
+      .filter((m) => m.isGated && m.recommendedPath === 'safe_disposal')
       .map((m) => `${m.name}: ${m.gatingReason}`),
   };
 };
 
-/**
- * Generate financial report
- */
 const generateFinancialReport = (analyzedMaterials, projectCostPerM2, areaM2) => {
   const totalRevenue = analyzedMaterials
     .filter((m) => m.estimatedValue > 0)
@@ -514,9 +430,6 @@ const generateFinancialReport = (analyzedMaterials, projectCostPerM2, areaM2) =>
   };
 };
 
-/**
- * Generate environmental report
- */
 const generateEnvironmentalReport = (analyzedMaterials) => {
   const totalCO2Saved = analyzedMaterials.reduce((sum, m) => sum + m.estimatedCO2Saved, 0);
 
@@ -552,10 +465,10 @@ const generateEnvironmentalReport = (analyzedMaterials) => {
   };
 };
 
-/**
- * Main analysis runner based on Hierarchical Decision Logic
- */
-export const runProjectAnalysis = (project) => {
+// ==========================================
+// MAIN ANALYSIS RUNNER (ASYNCHRONOUS)
+// ==========================================
+export const runProjectAnalysis = async (project) => {
   const { materials = [] } = project;
 
   const projectGating = {
@@ -565,7 +478,7 @@ export const runProjectAnalysis = (project) => {
     isDensePollutionSensitiveArea: project.isDensePollutionSensitiveArea,
   };
 
-  // Analyze each material hierarchically
+  // Analyze each material
   const analyzedMaterials = materials.map((m) => analyzeMaterial(m, projectGating));
 
   // Generate reports
@@ -576,6 +489,12 @@ export const runProjectAnalysis = (project) => {
     project.areaM2
   );
   const environmentalReport = generateEnvironmentalReport(analyzedMaterials);
+
+  // Generate AI Strategy Recommendation using Gemini
+  const aiRecommendation = await generateAIStrategyRecommendation(analyzedMaterials, project);
+  if (aiRecommendation) {
+    demolitionStrategy.aiRecommendation = aiRecommendation;
+  }
 
   return {
     materialResults: analyzedMaterials,

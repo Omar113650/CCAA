@@ -41,7 +41,7 @@ export const runAnalysis = async (req, res, next) => {
     });
 
     // Run analysis engine
-    const analysisResult = runProjectAnalysis(project);
+    const analysisResult = await runProjectAnalysis(project);
 
     // Persist analysis result
     const analysis = await prisma.analysis.create({
