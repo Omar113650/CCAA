@@ -8,16 +8,10 @@ import {
 } from '../../utils/response.js';
 import { runProjectAnalysis } from './analysis.engine.js';
 
-/**
- * POST /api/projects/:projectId/analyse
- * Runs the full analysis engine on all project materials
- * Saves result to DB and updates material records
- */
 export const runAnalysis = async (req, res, next) => {
   try {
     const { projectId } = req.params;
 
-    // Fetch project with all materials
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
@@ -34,42 +28,36 @@ export const runAnalysis = async (req, res, next) => {
       return sendBadRequest(res, 'Project has no materials to analyze. Add materials first.');
     }
 
-    // Update project status to "analyzing"
     await prisma.project.update({
       where: { id: projectId },
       data: { status: 'analyzing' },
     });
 
-    // Run analysis engine
     const analysisResult = await runProjectAnalysis(project);
 
-    // Persist analysis result
     const analysis = await prisma.analysis.create({
       data: {
         projectId,
-        demolitionStrategy: analysisResult.demolitionStrategy,
-        financialReport: analysisResult.financialReport,
+        demolitionStrategy:  analysisResult.demolitionStrategy,
+        financialReport:     analysisResult.pathDistribution,
         environmentalReport: analysisResult.environmentalReport,
       },
     });
 
-    // Update each material with its computed scores
     await Promise.all(
       analysisResult.materialResults.map((result) =>
         prisma.material.update({
           where: { id: result.materialId },
           data: {
             reusabilityScore: result.reusabilityScore,
-            estimatedValue: result.estimatedValue,
-            recommendedPath: result.recommendedPath,
-            isGated: result.isGated,
-            gatingReason: result.gatingReason,
+            recommendedPath:  result.recommendedPath,
+            isGated:          result.isGated,
+            gatingReason:     result.gatingReason,
           },
         })
       )
     );
 
-    // Update project status to "completed"
     await prisma.project.update({
       where: { id: projectId },
       data: { status: 'completed' },
@@ -95,10 +83,6 @@ export const runAnalysis = async (req, res, next) => {
   }
 };
 
-/**
- * GET /api/projects/:projectId/analyses
- * Returns all analyses for a project (history)
- */
 export const listAnalyses = async (req, res, next) => {
   try {
     const { projectId } = req.params;
@@ -118,10 +102,6 @@ export const listAnalyses = async (req, res, next) => {
   }
 };
 
-/**
- * GET /api/projects/:projectId/analyses/:id
- * Returns a specific analysis
- */
 export const getAnalysis = async (req, res, next) => {
   try {
     const { projectId, id } = req.params;

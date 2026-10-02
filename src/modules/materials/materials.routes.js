@@ -10,13 +10,14 @@ import {
   deleteMaterial,
   uploadBOQ,
   assessMaterialAI,
-  evaluateMaterial
+  evaluateMaterial,
+  calculateMaterialValue,
 } from './materials.controller.js';
 
-// Setup basic memory upload for images
+
 const uploadImage = multer({ limits: { fileSize: 5 * 1024 * 1024 } }).single('image');
 
-// mergeParams: true allows access to :projectId from parent router
+
 const router = Router({ mergeParams: true });
 
 router.use(authenticate);
@@ -26,6 +27,7 @@ router.post('/', createMaterial);
 router.post('/upload', uploadBOQMiddleware, uploadBOQ);
 router.post('/:id/assess', uploadImage, assessMaterialAI);
 router.post('/:id/evaluate', evaluateMaterial);
+router.post('/:id/calculate-value', calculateMaterialValue);
 router.get('/:id', getMaterial);
 router.patch('/:id', updateMaterial);
 router.delete('/:id', deleteMaterial);

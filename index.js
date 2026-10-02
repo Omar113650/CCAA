@@ -53,9 +53,14 @@ app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/contact-requests', contactRequestsRoutes);
 app.use('/api/presets', presetsRoutes);
 
-const swaggerDocument = JSON.parse(
-  fs.readFileSync(new URL('./src/config/swagger.json', import.meta.url))
-);
+let swaggerDocument = {};
+try {
+  swaggerDocument = JSON.parse(
+    fs.readFileSync(new URL('./src/config/swagger.json', import.meta.url), 'utf8')
+  );
+} catch (err) {
+  console.warn('Could not load swagger.json:', err.message);
+}
 
 app.get('/api-docs/swagger.json', (req, res) => {
   res.json(swaggerDocument);
@@ -113,14 +118,6 @@ async function startServer() {
     app.listen(PORT, () => {
       console.log(`CCAA API running on http://localhost:${PORT}`);
       console.log(`Swagger UI Docs: http://localhost:${PORT}/api-docs`);
-      console.log(`API Docs:`);
-      console.log(`   GET  /api/users/me`);
-      console.log(`   GET  /api/projects`);
-      console.log(`   POST /api/projects`);
-      console.log(`   POST /api/projects/:id/materials`);
-      console.log(`   POST /api/projects/:id/analyses`);
-      console.log(`   GET  /api/marketplace`);
-      console.log(`   GET  /api/presets`);
     });
   } catch (error) {
     console.error('Startup failed:', error.message);
@@ -128,9 +125,13 @@ async function startServer() {
   }
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
 
 process.on('SIGTERM', async () => {
   await prisma.$disconnect();
   process.exit(0);
 });
+
+export default app;

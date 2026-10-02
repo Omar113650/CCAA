@@ -1,7 +1,3 @@
-/**
- * Centralized Error Handler Middleware
- * Must be registered LAST in Express (after all routes)
- */
 export const errorHandler = (err, req, res, next) => {
   console.error('[Error Handler]', {
     message: err.message,
@@ -10,7 +6,6 @@ export const errorHandler = (err, req, res, next) => {
     method: req.method,
   });
 
-  // Prisma errors
   if (err.code === 'P2002') {
     return res.status(409).json({
       success: false,
@@ -33,7 +28,6 @@ export const errorHandler = (err, req, res, next) => {
     });
   }
 
-  // Default error
   const statusCode = err.statusCode || err.status || 500;
   const message =
     process.env.NODE_ENV === 'production' && statusCode === 500
@@ -46,10 +40,6 @@ export const errorHandler = (err, req, res, next) => {
   });
 };
 
-/**
- * 404 Not Found handler
- * Catches any request that didn't match a route
- */
 export const notFoundHandler = (req, res) => {
   return res.status(404).json({
     success: false,

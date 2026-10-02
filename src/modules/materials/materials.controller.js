@@ -181,7 +181,7 @@ export const uploadBOQ = async (req, res, next) => {
  * Assess material condition and accessibility via AI (Image)
  */
 import { assessElementImage } from '../../utils/ai.js';
-import { applyGates, runDecisionEngine } from './materials.services.js';
+import { applyGates, runDecisionEngine, calculateRecoveredValue } from './materials.services.js';
 
 export const assessMaterialAI = async (req, res, next) => {
   try {
@@ -377,6 +377,85 @@ export const evaluateMaterial = async (req, res, next) => {
           : `تم تشغيل محرك القرارات: ${engineMessage}`
       }
     }, 'تم تقييم العنصر بنجاح');
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/projects/:projectId/materials/:id/calculate-value
+ *
+ * ✨ OPTIONAL FINANCIAL FEATURE — Separate from the Decision Engine.
+ *
+ * Calculates the Net Recovered Value based on:
+ *   recoveredValue = (unitMarketPrice - disassemblyCostPerUnit) × quantity
+ *
+ * The market price is pulled from the preset database.
+ * The disassembly cost is entered by the specialist (varies by company/location/method).
+ *
+ * Request Body:
+ *   {
+ *     "disassemblyCostPerUnit": 150,   // تكلفة فك الوحدة الواحدة (يدخلها المتخصص)
+ *     "manualUnitPrice": 500           // (اختياري) تجاوز سعر الداتابيز بسعر يدوي
+ *   }
+ */
+export const calculateMaterialValue = async (req, res, next) => {
+  try {
+    const { projectId, id } = req.params;
+
+    const owned = await verifyProjectOwnership(res, projectId, req.user.id);
+    if (!owned) return;
+
+    const material = await prisma.material.findFirst({
+      where: { id, projectId },
+      include: { preset: true },
+    });
+    if (!material) return sendNotFound(res, 'Material not found');
+
+    const { disassemblyCostPerUnit, manualUnitPrice } = req.body;
+
+    // Validate input
+    if (disassemblyCostPerUnit === undefined || disassemblyCostPerUnit === null) {
+      return sendBadRequest(res, 'يرجى إدخال تكلفة الفك للوحدة (disassemblyCostPerUnit)');
+    }
+
+    const costNum = Number(disassemblyCostPerUnit);
+    if (isNaN(costNum) || costNum < 0) {
+      return sendBadRequest(res, 'تكلفة الفك يجب أن تكون رقماً موجباً أو صفراً');
+    }
+
+    const manualPrice = manualUnitPrice !== undefined && manualUnitPrice !== null
+      ? Number(manualUnitPrice)
+      : null;
+
+    if (manualPrice !== null && (isNaN(manualPrice) || manualPrice < 0)) {
+      return sendBadRequest(res, 'السعر اليدوي يجب أن يكون رقماً موجباً');
+    }
+
+    // Run the calculation
+    const result = calculateRecoveredValue(material, costNum, manualPrice);
+
+    if (!result.success) {
+      return sendBadRequest(res, result.error);
+    }
+
+    // Optionally persist the recoveredValue on the material record for reporting
+    await prisma.material.update({
+      where: { id },
+      data: {
+        estimatedValue: result.breakdown.totalRecoveredValue,
+        overrides: {
+          ...(typeof material.overrides === 'object' && material.overrides ? material.overrides : {}),
+          recoveredValueBreakdown: result.breakdown,
+        },
+      },
+    });
+
+    return sendSuccess(res, {
+      materialId: id,
+      materialName: material.name,
+      ...result.breakdown,
+    }, 'تم احتساب القيمة المستردة بنجاح');
   } catch (err) {
     next(err);
   }

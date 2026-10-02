@@ -2,18 +2,17 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import prisma from '../utils/prisma.js';
 import { sendUnauthorized } from '../utils/response.js';
 
-// Cache the JWKS so we don't fetch it on every request
-const JWKS = createRemoteJWKSet(
-  new URL(process.env.SUPABASE_JWKS_URL || `${process.env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`)
-);
+let jwksInstance = null;
+const getJWKS = () => {
+  if (!jwksInstance) {
+    const jwksUrl =
+      process.env.SUPABASE_JWKS_URL ||
+      `${process.env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`;
+    jwksInstance = createRemoteJWKSet(new URL(jwksUrl));
+  }
+  return jwksInstance;
+};
 
-/**
- * Auth Middleware
- * 1. Extracts Bearer token from Authorization header
- * 2. Verifies it with Supabase JWKS
- * 3. Finds or creates user in DB
- * 4. Attaches req.user for downstream handlers
- */
 export const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -24,10 +23,9 @@ export const authenticate = async (req, res, next) => {
 
     const token = authHeader.slice(7);
 
-    // Verify JWT with Supabase JWKS
     let payload;
     try {
-      const { payload: jwtPayload } = await jwtVerify(token, JWKS, {
+      const { payload: jwtPayload } = await jwtVerify(token, getJWKS(), {
         issuer: `${process.env.SUPABASE_URL}/auth/v1`,
       });
       payload = jwtPayload;
@@ -42,13 +40,11 @@ export const authenticate = async (req, res, next) => {
       return sendUnauthorized(res, 'Token missing required claims');
     }
 
-    // Find or create user in our DB (sync with Supabase Auth)
     let user = await prisma.user.findUnique({
       where: { id: supabaseUserId },
     });
 
     if (!user) {
-      // First login — create user record from Supabase claims
       const name =
         payload.user_metadata?.full_name ||
         payload.user_metadata?.name ||
@@ -66,7 +62,6 @@ export const authenticate = async (req, res, next) => {
       });
     }
 
-    // Attach user to request for downstream handlers
     req.user = user;
     next();
   } catch (error) {
@@ -75,10 +70,6 @@ export const authenticate = async (req, res, next) => {
   }
 };
 
-/**
- * Optional auth — doesn't block if no token
- * Sets req.user = null if unauthenticated
- */
 export const optionalAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {

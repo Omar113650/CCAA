@@ -9,7 +9,6 @@ const __dirname = path.dirname(__filename);
 
 async function seedPresets() {
   try {
-    // Navigate up from src/scripts to backend/
     const dbPath = path.resolve(__dirname, '../../final data base.xlsx');
     console.log(`Reading database from: ${dbPath}`);
 
@@ -18,22 +17,18 @@ async function seedPresets() {
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
 
-    // Convert sheet to JSON array
     const data = xlsx.utils.sheet_to_json(sheet);
     
     console.log(`Found ${data.length} rows in the database.`);
 
-    // Clear existing presets
     await prisma.preset.deleteMany({});
     console.log('Cleared existing presets.');
 
     let count = 0;
     for (const row of data) {
-      // Try to extract key fields based on expected Arabic/English names
       const nameAr = row['وصف العنصر'] || row['العنصر'] || row['Element'] || row['Name'] || row['Item'] || `عنصر ${count + 1}`;
       const category = row['الفئة'] || row['Category'] || 'عام';
       
-      // Store all raw columns into defaultValues
       const defaultValues = { ...row };
       
       await prisma.preset.create({

@@ -902,6 +902,109 @@
           }
         }
       }
+    },
+
+    "/api/projects/{projectId}/materials/{id}/calculate-value": {
+      "post": {
+        "tags": ["Materials"],
+        "summary": "احتساب القيمة المستردة (Financial Feature)",
+        "description": "✨ ميزة مالية اختيارية — مستقلة تماماً عن محرك القرار.\n\nتحسب صافي القيمة المستردة بناءً على المعادلة:\n\n`القيمة المستردة = (سعر الوحدة في الداتابيز - تكلفة الفك للوحدة) × الكمية`\n\n- سعر الوحدة يُسحب تلقائياً من قاعدة البيانات (Preset).\n- تكلفة الفك يُدخلها المتخصص (تتفاوت حسب الشركة والموقع وطريقة الفك).\n- يمكن تجاوز سعر الداتابيز بسعر يدوي عبر `manualUnitPrice`.",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" },
+            "description": "Project UUID"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" },
+            "description": "Material UUID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["disassemblyCostPerUnit"],
+                "properties": {
+                  "disassemblyCostPerUnit": {
+                    "type": "number",
+                    "description": "تكلفة فك وحدة واحدة من العنصر (يدخلها المتخصص — تتفاوت حسب الشركة والموقع والطريقة)",
+                    "example": 150
+                  },
+                  "manualUnitPrice": {
+                    "type": "number",
+                    "nullable": true,
+                    "description": "(اختياري) سعر الوحدة اليدوي — يتجاوز سعر الداتابيز إذا لم يكن متاحاً أو احتاج تحديثاً",
+                    "example": 800
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "تم احتساب القيمة المستردة بنجاح",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string", "example": "تم احتساب القيمة المستردة بنجاح" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "materialId": { "type": "string", "format": "uuid" },
+                        "materialName": { "type": "string", "example": "نافذة خشبية بمفصلات (200 × 130 سم)" },
+                        "unitMarketPrice": { "type": "number", "example": 800, "description": "سعر الوحدة من الداتابيز" },
+                        "priceSource": { "type": "string", "enum": ["database", "manual"], "example": "database" },
+                        "disassemblyCostPerUnit": { "type": "number", "example": 150, "description": "تكلفة الفك للوحدة" },
+                        "netValuePerUnit": { "type": "number", "example": 650, "description": "صافي القيمة للوحدة" },
+                        "quantity": { "type": "number", "example": 10 },
+                        "unit": { "type": "string", "example": "عدد" },
+                        "totalRecoveredValue": { "type": "number", "example": 6500, "description": "القيمة المستردة الإجمالية" },
+                        "currency": { "type": "string", "example": "EGP" },
+                        "isProfitable": { "type": "boolean", "example": true },
+                        "note": { "type": "string", "example": "القيمة المستردة إيجابية — يُنصح بالمتابعة" }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "message": "تم احتساب القيمة المستردة بنجاح",
+                  "data": {
+                    "materialId": "e81d7f6a-4b9c-4d2a-8f7d-1c3b4a5e6f7g",
+                    "materialName": "نافذة خشبية بمفصلات (200 × 130 سم)",
+                    "unitMarketPrice": 800,
+                    "priceSource": "database",
+                    "disassemblyCostPerUnit": 150,
+                    "netValuePerUnit": 650,
+                    "quantity": 10,
+                    "unit": "عدد",
+                    "totalRecoveredValue": 6500,
+                    "currency": "EGP",
+                    "isProfitable": true,
+                    "note": "القيمة المستردة إيجابية — يُنصح بالمتابعة"
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "بيانات غير صالحة أو سعر غير متوفر في الداتابيز" },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "Material not found" }
+        }
+      }
     }
   }
 }

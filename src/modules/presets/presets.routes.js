@@ -1,17 +1,13 @@
-import { Router } from 'express';
-import prisma from '../../utils/prisma.js';
-import { sendSuccess } from '../../utils/response.js';
+import { Router } from "express";
+import prisma from "../../utils/prisma.js";
+import { sendSuccess } from "../../utils/response.js";
 
 const router = Router();
 
-/**
- * GET /api/presets
- * Public — returns all material presets for the frontend form
- */
-router.get('/', async (req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
     const presets = await prisma.preset.findMany({
-      orderBy: [{ category: 'asc' }, { nameAr: 'asc' }],
+      orderBy: [{ category: "asc" }, { nameAr: "asc" }],
     });
 
     // Group by category for easier frontend consumption
@@ -21,7 +17,7 @@ router.get('/', async (req, res, next) => {
       return acc;
     }, {});
 
-    return sendSuccess(res, { presets, grouped }, 'Presets fetched');
+    return sendSuccess(res, { presets, grouped }, "Presets fetched");
   } catch (err) {
     next(err);
   }

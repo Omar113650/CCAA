@@ -1,8 +1,3 @@
-/**
- * Centralized API response helpers
- * Ensures consistent response format across all endpoints
- */
-
 export const sendSuccess = (res, data = null, message = 'Success', statusCode = 200) => {
   return res.status(statusCode).json({
     success: true,
